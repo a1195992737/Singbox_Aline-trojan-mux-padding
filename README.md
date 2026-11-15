@@ -1,33 +1,3 @@
-# sing-box-lite
-
-只有一个协议的 sing-box 安装脚本：**Trojan + TLS + h2mux + padding**。
-为 Alpine / 128M、256M 这类小内存 VPS 重写，专治「跑一段时间 sing-box 就消失」。
-
-```
-原版 fscarmen/sing-box   7000+ 行，14 个模块，nginx + Argo + 订阅服务 + clash_api + cache_file
-本脚本                    ~900 行，1 个 config.json，跑一个 Trojan 就完事
-```
-
-## 为什么原版会把 sing-box 杀掉
-
-不是脚本主动 kill，是小内存机器被 **OOM** 选中。原版在 Alpine 上同时常驻：
-
-| 组件 | 常驻内存 | 说明 |
-| --- | --- | --- |
-| sing-box | 40–60 MB | Go 堆无上限，长跑持续增长 |
-| cloudflared (Argo) | 25–40 MB | 即使不用 Argo 也装着 |
-| nginx | 10–20 MB | 只为订阅页 / WS 反代 |
-| 订阅 HTTP 服务 | 少量 | 模板下载 + 页面 |
-
-这些进程争抢仅剩的几百 MB 内存，Go 运行时默认又不设堆上限，堆涨到把内存吃干净后，内核直接 OOM kill 掉占用最大的那个进程——通常就是 sing-box。
-
-本脚本的处理方式：
-
-1. **只跑一个进程**：砍掉 nginx、cloudflared、订阅服务、jq、qrencode、bash 依赖，配置合并成单个 `config.json`。
-2. **`GOMEMLIMIT` 给 Go 堆设软上限**，按物理内存自动分档（≤192M → 48MiB，≤256M → 64MiB，≤512M → 128MiB，更高 → 256MiB），让 GC 提前动手，而不是等内核来杀。
-3. **OpenRC `supervise-daemon` 托管**，崩了 10 秒后自动拉起（`respawn_max=0` 无限重试）；没有 supervise-daemon 时自动降级为 `command_background`。
-4. **日志超过 1MB 在 start_pre 自动截断**，小硬盘不会被写满。
-
 ## 一键安装
 
 ```bash
